@@ -13,8 +13,7 @@ from torchtext import data, datasets
 from torch.utils.data import TensorDataset, DataLoader
 from torch.autograd import Variable
 
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-device = torch.device("cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 WINDOW_SIZE = 10
 VOCAB_SIZE = 29
 
@@ -546,26 +545,6 @@ def train(N=2, d_model=512, d_ff=2048, h=4, dropout=0.1):
     frac = 1
 
     print(N, d_model, d_ff, h, dropout)
-
-    # data_train = generate('hdfs_train')
-    # BOS_WORD = '<s>'
-    # EOS_WORD = '</s>'
-    # BLANK_WORD = "<blank>"
-    # SRC = data.Field(pad_token=BLANK_WORD)
-    # TGT = data.Field(init_token = BOS_WORD, eos_token = EOS_WORD, pad_token=BLANK_WORD)
-    # MAX_LEN = 10
-    # MIN_FREQ = 2
-    # SRC.build_vocab(source, min_freq=MIN_FREQ)
-    # TGT.build_vocab(target, min_freq=MIN_FREQ)
-    # model = make_model(len(SRC.vocab), len(TGT.vocab), N=N)
-    # criterion = LabelSmoothing(size=len(TGT.vocab), padding_idx=0, smoothing=0.1)
-    # BATCH_SIZE = 12000
-    # train_iter = MyIterator(train, batch_size=BATCH_SIZE, device=0,
-    #                         repeat=False, sort_key=lambda x: (len(x.src), len(x.trg)),
-    #                         batch_size_fn=batch_size_fn, train=True)
-    # valid_iter = MyIterator(val, batch_size=BATCH_SIZE, device=0,
-    #                         repeat=False, sort_key=lambda x: (len(x.src), len(x.trg)),
-    #                         batch_size_fn=batch_size_fn, train=False)
 
     #Build model
     model = make_model(VOCAB_SIZE, VOCAB_SIZE, N=N, d_model=d_model, d_ff=d_ff, h=h, dropout=dropout)

@@ -1,9 +1,3 @@
-"""
-Description : This file implements the Spell algorithm for log parsing
-Author      : LogPAI team
-License     : MIT
-"""
-
 import sys
 sys.path.append('../')
 import re

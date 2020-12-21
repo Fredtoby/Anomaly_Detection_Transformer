@@ -21,6 +21,7 @@ practicum_test_1.sh
 test_ES.ipynb
 test_parser.ipynb
 log_keys
+linux_sequences
 *.txt
 *log
 *.csv

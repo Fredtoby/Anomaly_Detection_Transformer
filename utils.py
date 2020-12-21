@@ -1,3 +1,4 @@
+from math import log
 import sys
 sys.path.append('../')
 import os
@@ -20,9 +21,10 @@ def parse(log_source, log_file, algorithm, labeled = 'False', start_date = '', s
         log_source: The source of the logs (e.g. HDFS, Openstack, Linux).
         log_file: The name of the log file.
         algorithm: Parsing algorithm: Spell or Drain.
-        
+        labeled: Set to true only if logs contain labels
     """
-
+    
+    # HDFS Logs
     if log_source == 'HDFS':
         input_dir = 'Dataset/' + log_source
         log_format = '<Date> <Time> <Pid> <Level> <Component>: <Content>'
@@ -31,8 +33,15 @@ def parse(log_source, log_file, algorithm, labeled = 'False', start_date = '', s
             r'(/|)([0-9]+\.){3}[0-9]+(:[0-9]+|)(:|)', # IP
             r'(?<=[^A-Za-z0-9])(\-?\+?\d+)(?=[^A-Za-z0-9])|[0-9]+$', # Numbers
         ]    
+    #Linux Logs        
     elif log_source == 'Linux':
-        print("Parse linux logs")
+        input_dir = 'Dataset/' + log_source
+        log_format = '<Month> <Day> <Time> <Machine> <Task>: <Content>'
+        regex      = [
+            r'(/|)([0-9]+\.){3}[0-9]+(:[0-9]+|)(:|)', # IP
+            r'(?<=[^A-Za-z0-9])(\-?\+?\d+)(?=[^A-Za-z0-9])|[0-9]+$', # Numbers
+        ]        
+    #Openstack Logs        
     elif log_source == 'Openstack':
         print("Parse Openstack logs")
 
@@ -52,68 +61,92 @@ def parse(log_source, log_file, algorithm, labeled = 'False', start_date = '', s
 
 def seq(df_log, output_dir, log_source, labeled):
 
-    if labeled:
-        a_blk_ids = {}
-        n_blk_ids = {}
+    if log_source == "Linux":
+        #Sequence of all log keys
+        np.savetxt(r'linux_sequences', df_log['Log Key'].values, fmt='%d', newline=' ')
+    elif log_source == "HDFS":
+        # If logs contain labels, extract normal and anomaly labels
+        if labeled:
+            norm_seq = {}
+            abn_seq = {}
 
-        labels = pd.read_csv("Dataset/HDFS/anomaly_label.csv").groupby("Label")
-        normal_labels = labels.get_group("Normal")["BlockId"].values
-        anomaly_labels = labels.get_group("Anomaly")["BlockId"].values
-    else:
-        blk_ids = {}
-
-    for index, row in df_log.iterrows():
-        # Get raw log content
-        line= row['Content']
-
-        # Block ids are can be in two different formats
-        if re.search("blk_-\d*", line):
-            blk_id = re.findall("blk_-\d*", line)[0]
-        elif re.search("blk_\d*", line):
-            blk_id = re.findall("blk_\d*", line)[0]
+            labels = pd.read_csv("Dataset/HDFS/anomaly_label.csv").groupby("Label")
+            normal_labels = labels.get_group("Normal")["BlockId"].values
+            anomaly_labels = labels.get_group("Anomaly")["BlockId"].values
+        # If no labels provided, all sequence will go in one file
         else:
-            print("Missing Block ID")
+            seqs = {}
+
+        #Iterate through all parsed logs to create sequences
+        for index, row in df_log.iterrows():
+            # Get raw log content
+            line= row['Content']
+
+            if log_source == "HDFS":
+                # Block ids are can be in two different formats
+                if re.search("blk_-\d*", line):
+                    seq_id = re.findall("blk_-\d*", line)[0]
+                elif re.search("blk_\d*", line):
+                    seq_id = re.findall("blk_\d*", line)[0]
+                else:
+                    print("Missing Block ID")
+            elif log_source == "Linux":
+                # Block ids are can be in two different formats
+                if re.search("sshd\[(.*?)\]", line):
+                    seq_id = re.findall("sshd\[(.*?)\]", line)[0]
+                    print(seq_id)
+                else:
+                    continue
+
+            # If logs contain labels, separate sequences into normal and anomaly
+            # Currently only available for HDFS
+            if labeled:
+                if seq_id in normal_labels:
+                    if seq_id in norm_seq:
+                        norm_seq[seq_id].append(row['Log Key'])
+                    else:
+                        norm_seq[seq_id] = [row['Log Key']]
+                if seq_id in anomaly_labels:
+                    if seq_id in abn_seq:
+                        abn_seq[seq_id].append(row['Log Key'])
+                    else:
+                        abn_seq[seq_id] = [row['Log Key']]                    
+            else:
+                # If sequence id is already in list, only update the sequence
+                if seq_id in seqs:
+                    seqs[seq_id].append(row['Log Key'])
+                # Otherwise, create new sequence id                
+                else:
+                    seqs[seq_id] = [row['Log Key']]
 
         if labeled:
-            if blk_id in normal_labels:
-                if blk_id in n_blk_ids:
-                    n_blk_ids[blk_id].append(row['Log Key'])
-                else:
-                    n_blk_ids[blk_id] = [row['Log Key']]
-            if blk_id in anomaly_labels:
-                if blk_id in a_blk_ids:
-                    a_blk_ids[blk_id].append(row['Log Key'])
-                else:
-                    a_blk_ids[blk_id] = [row['Log Key']]
+            output_seq(output_dir, log_source, norm_seq, abn_seq)
         else:
-            if blk_id in blk_ids:
-                blk_ids[blk_id].append(row['Log Key'])
-            else:
-                blk_ids[blk_id] = [row['Log Key']]
+            output_seq(output_dir, log_source, seqs)
 
-    if labeled:
+
+def output_seq(output_dir, log_source, seqs, abn_seq = ''):
+    # If logs contain labels, places sequences into two separate files
+    # for training
+    if abn_seq:
         # Sequenced log keys
         with open(output_dir + log_source + '_normal', 'w') as f:
-            for item in n_blk_ids:
-                for log_key in n_blk_ids[item]:
+            for item in seqs:
+                for log_key in seqs[item]:
                     f.write(str(log_key)+" ")
                 f.write("\n")
 
         with open(output_dir + log_source + '_abnormal', 'w') as f:
-            for item in a_blk_ids:
-                for log_key in a_blk_ids[item]:
+            for item in abn_seq:
+                for log_key in abn_seq[item]:
                     f.write(str(log_key)+" ")
                 f.write("\n")
     else:
         with open(output_dir + 'seq_logs', 'w') as f:
-            for item in blk_ids:
-                for log_key in blk_ids[item]:
+            for item in seqs:
+                for log_key in seqs[item]:
                     f.write(str(log_key)+" ")
                 f.write("\n")
-
-    #Sequence of all log keys
-    np.savetxt(r'log_keys', df_log['Log Key'].values, fmt='%d', newline=' ')
-
 
 def backtrace(pred, log_source, algorithm):
     """
