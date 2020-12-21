@@ -4,6 +4,7 @@ Dataset/hdfs_train0
 Dataset/hdfs_train1
 Dataset/hdfs_train2
 Dataset/hdfs_train3
+Dataset/HDFS/sample
 Drain_result/
 etc/
 images/federated/
@@ -19,6 +20,7 @@ parser_es.py
 practicum_test_1.sh
 test_ES.ipynb
 test_parser.ipynb
+log_keys
 *.txt
 *log
 *.csv

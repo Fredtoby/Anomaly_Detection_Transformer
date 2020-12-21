@@ -211,23 +211,24 @@ class LogParser:
                 log_templateids[logID] = template_id
             df_events.append([template_id, template_str, occurrence])
 
-        df_event = pd.DataFrame(df_events, columns=['EventId', 'EventTemplate', 'Occurrences'])
-        self.df_log['EventId'] = log_templateids
+        df_event = pd.DataFrame(df_events, columns=['Log Key', 'EventTemplate', 'Occurrences'])
+        self.df_log['Log Key'] = log_templateids
         self.df_log['EventTemplate'] = log_templates
 
         if self.keep_para:
             self.df_log["ParameterList"] = self.df_log.apply(self.get_parameter_list, axis=1) 
             
-        np.savetxt(r'Drain_result/np.txt', self.df_log['EventId'].values, fmt='%s', newline=' ')
         self.df_log.to_csv(os.path.join(self.savePath, self.logName + '_structured.csv'), index=False)
 
 
         occ_dict = dict(self.df_log['EventTemplate'].value_counts())
         df_event = pd.DataFrame()
         df_event['EventTemplate'] = self.df_log['EventTemplate'].unique()
-        df_event['EventId'] = df_event['EventTemplate'].map(lambda x: hashlib.md5(x.encode('utf-8')).hexdigest()[0:8])
+        df_event['Log Key'] = df_event['EventTemplate'].map(lambda x: hashlib.md5(x.encode('utf-8')).hexdigest()[0:8])
         df_event['Occurrences'] = df_event['EventTemplate'].map(occ_dict)
-        df_event.to_csv(os.path.join(self.savePath, self.logName + '_templates.csv'), index=False, columns=["EventId", "EventTemplate", "Occurrences"])
+        df_event.to_csv(os.path.join(self.savePath, self.logName + '_templates.csv'), index=False, columns=["Log Key", "EventTemplate", "Occurrences"])
+
+        return self.df_log
 
 
 
@@ -288,9 +289,11 @@ class LogParser:
         if not os.path.exists(self.savePath):
             os.makedirs(self.savePath)
 
-        self.outputResult(logCluL)
+        parsed_logs = self.outputResult(logCluL)
 
         print('Parsing done. [Time taken: {!s}]'.format(datetime.now() - start_time))
+
+        return parsed_logs
 
     def load_data(self):
         headers, regex = self.generate_logformat_regex(self.log_format)

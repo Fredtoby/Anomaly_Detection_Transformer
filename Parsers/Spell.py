@@ -5,16 +5,14 @@ License     : MIT
 """
 
 import sys
+sys.path.append('../')
 import re
 import os
 import numpy as np
 import pandas as pd
-import hashlib
 from sys import version_info
 from datetime import datetime
 import string
-import pickle
-
 
 class LCSObject:
     """ Class object to store a log group with the same template
@@ -33,7 +31,7 @@ class Node:
         self.token = token
         self.templateNo = templateNo
         self.childD = dict()
-
+        
 
 class LogParser:
     """ LogParser class
@@ -144,13 +142,10 @@ class LogParser:
     def getTemplate(self, lcs, seq, params):
         retVal = []
         
-#         print("seq", seq)
-#         print("lcs", lcs)
         if not lcs: return retVal
         lcs = lcs[::-1]
         i = 0
         for token in seq:
-#             print("ret", retVal)
             i += 1
             if token == lcs[-1]:
                 retVal.append(token)
@@ -217,46 +212,12 @@ class LogParser:
         self.df_log['Log Key'] = ids
         self.df_log['Message'] = templates
         if self.keep_para:
-            self.df_log["ParameterList"] = self.df_log.apply(self.get_parameter_list, axis=1) 
-        
-        blckid = {}
-        events = []
-
-        for index, row in self.df_log.iterrows():
-            line= row['Content']
-
-            if re.search("blk_-\d*", line):
-                if re.findall("blk_-\d*", line)[0] in blckid:
-                    blckid[re.findall("blk_-\d*", line)[0]].append(row['Log Key'])
-                else:
-                    blckid[re.findall("blk_-\d*", line)[0]] = [row['Log Key']]
-                events.append(re.findall("blk_-\d*", line)[0])
-            elif re.search("blk_\d*", line):
-                if re.findall("blk_\d*", line)[0] in blckid:
-                    blckid[re.findall("blk_\d*", line)[0]].append(row['Log Key'])
-                else:
-                    blckid[re.findall("blk_\d*", line)[0]] = [row['Log Key']]
-                events.append(re.findall("blk_\d*", line)[0])
-            else:
-                print("Missing Block ID")
-        
-        #Sequenced log keys
-        with open('Spell_result/train.txt', 'w') as f:
-            for item in blckid:
-                for log_key in blckid[item]:
-                    f.write(item + ": " + str(log_key)+" ")
-                f.write("\n")
-
-        #All log keys
-        np.savetxt(r'Spell_result/np.txt', self.df_log['Log Key'].values, fmt='%d', newline=' ')
+            self.df_log["ParameterList"] = self.df_log.apply(self.get_parameter_list, axis=1)      
 
         self.df_log.to_csv(os.path.join(self.savePath, 'out_structured.csv'), index=False)
         df_event.to_csv(os.path.join(self.savePath, 'out_templates.csv'), index=False)
-        
-#         with open('Spell_result/LCSObject.plk', 'wb') as LCSObject_file:
-#             pickle.dump(logClustL, LCSObject_file)
-#         with open('Spell_result/Tree.plk', 'wb') as Tree_file:
-#             pickle.dump(rootNode, Tree_file)
+
+        return self.df_log
 
     def printTree(self, node, dep):
         pStr = ''   
@@ -291,12 +252,7 @@ class LogParser:
         self.load_data()
         rootNode = Node()
         logCluL = []
-        
-#         with open('Spell_result/Tree.plk', 'rb') as Tree_file:
-#             rootNode = pickle.load(Tree_file)
-#         with open('Spell_result/LCSObject.plk', 'rb') as LCSObject_file:
-#             logCluL = pickle.load(LCSObject_file)
-        
+
         count = 0
         
         for _, line in self.df_log.iterrows():
@@ -320,14 +276,18 @@ class LogParser:
             if matchCluster:
                 matchCluster.logIDL.append(logID)
             count += 1
-#             if count % 1000000 == 0 or count == len(self.df_log):
+                #if count % 1000000 == 0 or count == len(self.df_log):
             if count == len(self.df_log):
                 print('Processed {0:.1f}% of log lines.'.format(count * 100.0 / len(self.df_log)))
         
         if not os.path.exists(self.savePath):
             os.makedirs(self.savePath)
-        self.outputResult(logCluL, rootNode)
+        
+        parsed_logs = self.outputResult(logCluL, rootNode)
+
         print('Parsing done. [Time taken: {!s}]'.format(datetime.now() - starttime))
+
+        return parsed_logs
 
     def load_data(self):
         headers, regex = self.generate_logformat_regex(self.logformat)
