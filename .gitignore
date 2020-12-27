@@ -15,7 +15,6 @@ wandb/
 .ipynb_checkpoints/
 detectionv1.ipynb
 detectionv2.ipynb
-detectionv4.ipynb
 parser_es.py
 practicum_test_1.sh
 test_ES.ipynb
