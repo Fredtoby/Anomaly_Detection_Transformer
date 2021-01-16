@@ -3,7 +3,7 @@
 
 import numpy as np
 import math, copy, time
-import pandas as pd
+import argparse
 from tqdm import tqdm
 
 import torch
@@ -14,8 +14,6 @@ from torch.utils.data import TensorDataset, DataLoader
 from torch.autograd import Variable
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-WINDOW_SIZE = 10
-VOCAB_SIZE = 29
 
 class EncoderDecoder(nn.Module):
 #    A standard Encoder-Decoder architecture. Base for this and many other models.
@@ -261,7 +259,7 @@ class Batch:
         if trg is not None:
             self.trg = trg[:, :-1]
             self.trg_y = trg[:, 1:]
-            self.trg_mask =                 self.make_std_mask(self.trg, pad)
+            self.trg_mask = self.make_std_mask(self.trg, pad)
             self.ntokens = (self.trg_y != pad).data.sum()
     
     @staticmethod
@@ -463,235 +461,241 @@ def run_epoch(data_iter, model, loss_compute):
             tokens = 0
     return total_loss / total_tokens
 
+def run_test(data_iter, model, WINDOW_SIZE):
+    start_symbol = 1
+    device = "cuda:0"
+    
+    for i, batch in enumerate(data_iter):
+        src = batch.src.to(device)
+        trg = batch.trg.to(device)
+        src_mask = batch.src_mask.to(device)
+        out = greedy_decode(model, src, src_mask, trg, WINDOW_SIZE, 1, False, 9)
+    return
 
 def greedy_decode(model, src, src_mask, tgt, max_len, start_symbol, pred, g):
+    device = "cuda:0"
+
     memory = model.encode(src, src_mask)
-    ys = torch.ones(1, 1).fill_(start_symbol).type_as(src.data)
-    
-    torch.set_printoptions(precision=2)
-    
+    ys = torch.ones(tgt.shape).fill_(start_symbol).type_as(src.data).to(device)
+    # ys = torch.ones(1, 1).fill_(start_symbol).type_as(src.data)
+
+    abnormal_count = 0
+
+
     for i in range(max_len-1):
+        print(i)
         out = model.decode(memory, src_mask, Variable(ys), Variable(subsequent_mask(ys.size(1)).type_as(src.data)))
         prob = model.generator(out[:, -1])
-       
-        predicted = torch.argsort(prob, 1)[0][-g:]
-        label = tgt[0][i]   
-             
-        if label == 0:
-            return ys
-        _, next_key = torch.max(prob, dim = 1)
-        next_key = next_key.data[0]
         
-        if pred:
-            print("Incoming log:", label) 
-            print("Candidate logs:", predicted, "\n")
-#             print("Probabilities: ", torch.sort(prob,1)[0][0][-g:])
-
-        if label not in predicted:
-            abn = torch.tensor([-1])
-            abn = abn.data[0]
-            ys = torch.cat([ys,torch.ones(1, 1).type_as(src.data).fill_(label)], dim=1)
-            ys = torch.cat([ys,torch.ones(1, 1).type_as(src.data).fill_(abn)], dim=1)
-            # print(ys[:,1:])
-            return ys[:,1:]
-        else: 
-            ys = torch.cat([ys,torch.ones(1, 1).type_as(src.data).fill_(label)], dim=1)
-            # _, next_key = torch.max(prob, dim = 1)
-            # next_key = next_key.data[0]
-            # ys = torch.cat([ys,torch.ones(1, 1).type_as(src.data).fill_(next_key)], dim=1)
-                    
-    return ys[:,1:]
+        predicted = torch.argsort(prob, 1)[:,-9:]
         
-def data_gen(filename, V, WINDOW_SIZE, batch, nbatches):
+        labels = tgt[:, i].to(device)
+        # labels = labels.reshape(WINDOW_SIZE, 1)
+        test = torch.eq(labels, pred)    
 
+        if True in test :
+            print("All input log keys", src)
+            print("Next log key now\n", labels)
+            print("top candidates\n", predicted)
+            print("test\n", test)
+            print("All next log keys", tgt)
+            abnormal_count += 1
+
+#         for j in range(len(labels)):
+#             label = labels[j]
+#             pred = predicted[j]
+
+#             if label not in predicted and label != 0:
+# #                 abn = torch.ones(labels.shape[0], 1).fill_(-1).type_as(labels.data).to(device)
+# #                 print(ys.shape)        
+# #                 print(labels.shape)
+# # #                 print(abn.shape)
+# # #                 print(src.shape)
+# # #                 abn = torch.tensor([-1])
+# # #                 abn = abn.data[0]
+# #                 ys = torch.cat((ys, abn), dim=1).to(device)
+# #                 ys = torch.cat((ys, labels.reshape(10,1)), dim=1).to(device)
+#                 # print(ys)
+#                 x = 1
+# #                 ys = torch.cat([ys,torch.ones(1, 1).type_as(src.data).fill_(abn)], dim=1)
+#             else:            
+#                 print([torch.ones(1, 1).type_as(src.data).fill_(label)])
+#                 # ys[j] = torch.cat((ys[j], labels), dim=1).to(device)
+#                 ys[j] = torch.cat([ys[j],torch.ones(1, 1).type_as(src.data).fill_(label)], dim=1)
+
+
+
+                # ys[j] = torch.cat((ys[j], label), dim=1)
+                # ys = torch.cat([ys[i],torch.ones(1, 1).type_as(src.data).fill_(label)], dim=1)
+                # print(ys)
+    
+    return ys
+        
+def data_gen(inputs, outputs, WINDOW_SIZE, batch, nbatches, mode=""):
+    
+    if mode == "train":
+        train_size = int(np.round(len(inputs) * 0.8))
+        inputs = inputs[:train_size]
+        outputs = outputs[:train_size]
+    elif mode == "val":
+        val_size = int(np.round(len(inputs) * 0.2))
+        inputs = inputs[-val_size:]
+        outputs = outputs[-val_size:]
+
+    t1 = torch.from_numpy(np.zeros((batch, WINDOW_SIZE+1),dtype=int))
+    t2 = torch.from_numpy(np.zeros((batch, WINDOW_SIZE+1),dtype=int))
+
+    t1[:,0] = 1
+    t2[:,0] = 1
+
+    for j in range(nbatches):
+        for i in range(batch):           
+            x = inputs[i]
+            y = outputs[i]
+
+            t1[i][1:len(x)+1] = torch.tensor(x, dtype=torch.float).to(device)
+            t2[i][1:len(y)+1] = torch.tensor(y, dtype=torch.float).to(device)
+            
+        src = Variable(t1, requires_grad=False)
+        tgt = Variable(t2, requires_grad=False)
+
+        yield Batch(src, tgt, 0)
+
+def generate(log_file, WINDOW_SIZE):
     num_sessions = 0
     inputs = []
     outputs = []
-    t1 = torch.from_numpy(np.zeros((batch, WINDOW_SIZE+1),dtype=int))
-    t2 = torch.from_numpy(np.zeros((batch, WINDOW_SIZE+1),dtype=int))
-    
-    with open('Dataset/' + filename, 'r') as f:        
+
+    with open('Dataset/' + log_file, 'r') as f:        
         for line in f.readlines():
             num_sessions += 1
             line = tuple(map(lambda n: n, map(int, line.strip().split())))
-            inputs.append(line[0: WINDOW_SIZE])
-            outputs.append(line[WINDOW_SIZE:WINDOW_SIZE*2])
-
-            if len(outputs[-1]) != WINDOW_SIZE: 
-                for _ in range(WINDOW_SIZE - len(outputs[-1])): 
-                    outputs[-1] = outputs[-1] + (0,)
-            if len(inputs[-1]) != WINDOW_SIZE: 
-                for _ in range(WINDOW_SIZE - len(inputs[-1])): 
-                    inputs[-1] = inputs[-1] + (0,)
-                    
-        for j in range(nbatches):
-            for i in range(batch):           
-                x = inputs[i]
-                y = outputs[i]
-                t1[i][1:] = torch.tensor(x, dtype=torch.float).to(device)
-                t2[i][1:] = torch.tensor(y, dtype=torch.float).to(device)
-
-                t1[:,0] = 1
-                t2[:,0] = 1
-            src = Variable(t1, requires_grad=False)
-            tgt = Variable(t2, requires_grad=False)
-
-            yield Batch(src, tgt, 0)
             
-def train(N=2, d_model=512, d_ff=2048, h=4, dropout=0.1):
-    
-    log_keys = "HDFS/hdfs_train"
-    devices = [0, 1]
-    frac = 1
+            x = line[0: WINDOW_SIZE]
+            y = line[WINDOW_SIZE:WINDOW_SIZE*2]
+            
+            if not y: continue
+            
+            inputs.append(x)
+            outputs.append(y)
 
-    print(N, d_model, d_ff, h, dropout)
+    return inputs, outputs
+
+def train(args):
+
+    log_file = args.log_file
+    VOCAB_SIZE = args.num_classes
+    WINDOW_SIZE = args.window_size
+
+    N = args.num_layers
+    d_model = args.hidden_size
+    h = args.num_heads
+
+    batch = args.batch_size
+    epochs = args.epochs
+
+    devices = [0, 1]
 
     #Build model
-    model = make_model(VOCAB_SIZE, VOCAB_SIZE, N=N, d_model=d_model, d_ff=d_ff, h=h, dropout=dropout)
-    criterion = LabelSmoothing(size = VOCAB_SIZE, padding_idx=0, smoothing=0.0)
+    model = make_model(VOCAB_SIZE, VOCAB_SIZE, N=N, d_model=d_model, h=h)
+    criterion = LabelSmoothing(size = VOCAB_SIZE, padding_idx=0, smoothing=0.1)
+    model_opt = NoamOpt(model.src_embed[0].d_model, 1, 2000, torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
+    
+    inputs, outputs = generate(log_file, WINDOW_SIZE)
 
-    # global_model.cuda()
-    # criterion.cuda()
-    
-    model_opt = NoamOpt(model.src_embed[0].d_model, 1, 400, torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
-    model_par = nn.DataParallel(model, device_ids=devices)
-    
-    for epoch in range(10):
+    if torch.cuda.is_available():
+        model.cuda()
+        criterion.cuda()
+        model_par = nn.DataParallel(model, device_ids=devices)
+
+        for epoch in range(epochs):
+            model_par.train()
+            run_epoch(data_gen(inputs, outputs, WINDOW_SIZE, batch, 50, "train"), model_par, MultiGPULossCompute(model.generator, criterion, devices=devices, opt=model_opt))
+            
+            model_par.eval()
+            loss = run_epoch(data_gen(inputs, outputs, WINDOW_SIZE, batch, 5, "val"), model_par, MultiGPULossCompute(model.generator, criterion, devices=devices, opt=None))
+            print(loss)        
+    else:
         model.train()
-        run_epoch(data_gen(log_keys, VOCAB_SIZE, WINDOW_SIZE, 10, 30), model, SimpleLossCompute(model.generator, criterion, model_opt))
-        # print(run_epoch(data_gen(log_keys, VOCAB_SIZE, WINDOW_SIZE, 10, 30), model_par, MultiGPULossCompute(global_model.generator, criterion, devices=devices, opt=model_opt)))
+        run_epoch(data_gen(log_file, WINDOW_SIZE, 10, 30), model, SimpleLossCompute(model.generator, criterion, model_opt))
         model.eval()
-        print(run_epoch(data_gen(log_keys, VOCAB_SIZE, WINDOW_SIZE, 10, 5), model, SimpleLossCompute(model.generator, criterion, None)))
-        # print(run_epoch(data_gen(log_keys, VOCAB_SIZE, WINDOW_SIZE, 10, 5), model_par, MultiGPULossCompute(global_model.generator, criterion, devices=devices, opt=None)))       
+        print(run_epoch(data_gen(log_file, WINDOW_SIZE, 10, 5), model, SimpleLossCompute(model.generator, criterion, None)))
+
     torch.save(model.state_dict(), "Model/centralized_model.pt")
     torch.save(model, "Model/centralized_models.pt")
 
     return model
 
-def federated_training(rounds = 1, clients = 0, N=2, d_model=512, d_ff=2048, h=4, dropout=0.1):
-    log_keys = "HDFS_1/hdfs_train"
+def federated_training(args):
+
+    log_file = args.log_file
+    VOCAB_SIZE = args.num_classes
+    WINDOW_SIZE = args.window_size
+
+    N = args.num_layers
+    d_model = args.hidden_size
+    h = args.num_heads
+
+    batch = args.batch_size
+    epochs = args.epochs
+
+    rounds = args.rounds
+    clients = args.clients
+    frac = args.frac
+
+
     devices = [0, 1]
-    frac = 1
 
-    global_model = make_model(VOCAB_SIZE, VOCAB_SIZE, N=N, d_model=d_model, d_ff=d_ff, h=h, dropout=dropout)
-    criterion = LabelSmoothing(size = VOCAB_SIZE, padding_idx=0, smoothing=0.0)
+    global_model = make_model(VOCAB_SIZE, VOCAB_SIZE, N=N, d_model=d_model, h=h)
+    criterion = LabelSmoothing(size = VOCAB_SIZE, padding_idx=0, smoothing=0.1)
 
-    print(N, d_model, d_ff, h, dropout)
+    global_model.cuda()
+    criterion.cuda()
 
-    # Set the model to train and send it to device.
-    # global_model.to(device)
-    # global_model.train()
+    model_par = nn.DataParallel(global_model, device_ids=devices)
 
-    # copy weights
-    # global_weights = global_model.state_dict()
-    global_weights = []
+    global_model.train()
+    global_weights = global_model.state_dict()
 
-    # Training
-    train_loss, train_accuracy = [], []
-    val_acc_list, net_list = [], []
-    cv_loss, cv_acc = [], []
-    print_every = 2
-    val_loss_pre, counter = 0, 0       
-
-    for epoch in tqdm(range(rounds)):
+    for roundd in tqdm(range(rounds)):
         local_weights, local_losses = [], []
-        print(f'\n | Global Training Round : {epoch+1} |\n')
+        print(f'\n | Global Training Round : {roundd+1} |\n')
         
+        global_model.train()
         m = max(int(frac * clients), 1)
-        idxs_users = np.random.choice(range(clients), m, replace=False)
-
+        idxs_users = np.random.choice(range(1, clients+1), m, replace=False)
+        
         for i in idxs_users:
             print("Client:", i)
 
-            log_keys = "hdfs_train" + str(i)
-            model = make_model(VOCAB_SIZE, VOCAB_SIZE, N=N, d_model=d_model, d_ff=d_ff, h=h, dropout=dropout)
+            client_file = log_file + "_" + str(i)
+            inputs, outputs = generate(client_file, WINDOW_SIZE)
 
-            model_opt = NoamOpt(model.src_embed[0].d_model, 1, 400, torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
+            model = copy.deepcopy(global_model)
+            model_opt = NoamOpt(model.src_embed[0].d_model, 1, 2000, torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
+            model.cuda()                
+            model_par = nn.DataParallel(model, device_ids=devices)
+
+            for epoch in range(epochs):
+                model_par.train()
+                run_epoch(data_gen(inputs, outputs, WINDOW_SIZE, batch, 50, "train"), model_par, MultiGPULossCompute(model.generator, criterion, devices=devices, opt=model_opt))
                 
-            for epoch in range(10):
-                model.train()
-                run_epoch(data_gen(log_keys, VOCAB_SIZE, WINDOW_SIZE, 10, 30), model, SimpleLossCompute(model.generator, criterion, model_opt))
-                # print(run_epoch(data_gen(log_keys, VOCAB_SIZE, WINDOW_SIZE, 10, 30), model_par, MultiGPULossCompute(global_model.generator, criterion, devices=devices, opt=model_opt)))
-                model.eval()
-                print(run_epoch(data_gen(log_keys, VOCAB_SIZE, WINDOW_SIZE, 10, 5), model, SimpleLossCompute(model.generator, criterion, None)))
-                # print(run_epoch(data_gen(log_keys, VOCAB_SIZE, WINDOW_SIZE, 10, 5), model_par, MultiGPULossCompute(global_model.generator, criterion, devices=devices, opt=None)))       
+                model_par.eval()
+                loss = run_epoch(data_gen(inputs, outputs, WINDOW_SIZE, batch, 50, "val"), model_par,  MultiGPULossCompute(model.generator, criterion, devices=devices, opt=None))
+                print(loss)        
 
             local_weights.append(copy.deepcopy(model.state_dict()))
-            torch.save(model.state_dict(), "Model/model" + str(i) + ".pt")
+            torch.save(model.state_dict(), "Model/local_model.pt")
 
         global_weights = average_weights(local_weights)
         global_model.load_state_dict(global_weights)
-        torch.save(global_model, "Model/global_models.pt")
+        torch.save(global_model, "Model/globalmodels.pt")
+        
+        # if (roundd + 1) % 2 == 0:
+        #     torch.save(global_model, "Model/global_" + log_source + "_" + str(clients) + "_" + str(roundd+1) + "_"  + str(N) + "_" + str(h) + "_models.pt")
+        #     test(model, n_logs, a_logs, log_source, size, N, h, str(clients), str(roundd+1))
     
     return global_model
-
-def test(model):
-
-    FP = 0
-    TP = 0
-    TN = 0
-    FN = 0
-
-    model.eval()
-
-    num = 5000
-
-    input_n, output_n = generate("HDFS/hdfs_test_normal")
-    input_a, output_a = generate("HDFS/hdfs_test_abnormal")
-
-    src_mask = Variable(torch.ones(1, 1, WINDOW_SIZE + 1) )
-
-    t1 = torch.from_numpy(np.zeros((1, WINDOW_SIZE + 1),dtype=int))
-    t2 = torch.from_numpy(np.zeros((1, WINDOW_SIZE),dtype=int))
-    start_time = time.time()
-    
-    for i in range(num):
-
-        t1[0][1:WINDOW_SIZE+1] = torch.tensor(input_n[i], dtype=torch.float).to(device)
-        t2[0][0:WINDOW_SIZE+1] = torch.tensor(output_n[i], dtype=torch.float).to(device)
-        
-        t1[0][0]=1
-
-        src = Variable(t1, requires_grad=False)
-        tgt = Variable(t2, requires_grad=False)
-
-        pred = greedy_decode(model, src, src_mask, tgt, max_len=WINDOW_SIZE+1, start_symbol=1, pred=False, g=9) 
-        
-        if -1 in pred: FP = FP + 1
-        else: TN = TN + 1
-
-        if (i%1000) == 0: print(i)
-
-    t1 = torch.from_numpy(np.zeros((1, WINDOW_SIZE + 1),dtype=int))
-    t2 = torch.from_numpy(np.zeros((1, WINDOW_SIZE + 1),dtype=int))
-
-    for i in range(num):
-
-        t1[0][1:len(input_a[i])+1] = torch.tensor(input_a[i], dtype=torch.float).to(device)
-        t2[0][1:WINDOW_SIZE+1] = torch.tensor(output_a[i], dtype=torch.float).to(device)
-        
-        t1[0][0]=1
-        t2[0][0]=1
-
-        src = Variable(t1, requires_grad=False)
-        tgt = Variable(t2, requires_grad=False)
-
-        pred = greedy_decode(model, src, src_mask, tgt, max_len=WINDOW_SIZE+1, start_symbol=1, pred=False, g=9) 
-        
-        if -1 in pred: TP = TP + 1
-        else:  FN = FN + 1
-        if (i%1000) == 0: print(i)
-
-    A = 100 * (TP + TN)/(TP + TN + FP + FN)
-    P = 100 * TP / (TP + FP)
-    R = 100 * TP / (TP + FN)
-    F1 = 2 * P * R / (P + R)
-    print('True positive (TP): {}, \ntrue negative (TN): {}, \nfalse positive (FP): {}, \nfalse negative (FN): {}, \nAccuracy: {:.3f}%, \nPrecision: {:.3f}%, \nRecall: {:.3f}%, \nF1-measure: {:.3f}%'.format(TP, TN, FP, FN, A, P, R, F1))
-
-    elapsed_time = time.time() - start_time
-    print('elapsed_time: {:.3f}s'.format(elapsed_time))
-
-    return 
 
 def average_weights(w):
     w_avg = copy.deepcopy(w[0])
@@ -701,25 +705,60 @@ def average_weights(w):
         w_avg[key] = torch.div(w_avg[key], len(w))
     return w_avg
 
-def generate(name):
-    hdfs = set()
-    inputs = []
-    outputs = []
-    num_sessions = 0
-    # hdfs = []
+def test(args):
 
-    with open('Dataset/' + name, 'r') as f:
-        for line in f.readlines():
-            num_sessions += 1
-            line = tuple(map(lambda n: n, map(int, line.strip().split())))
-            ##for i in range(len(line) - WINDOW_SIZE):
-            inputs.append(line[0: WINDOW_SIZE])
-            outputs.append(line[WINDOW_SIZE:WINDOW_SIZE*2])           
-            
-            if len(outputs[-1]) != WINDOW_SIZE: 
-                for _ in range(WINDOW_SIZE - len(outputs[-1])): outputs[-1] = outputs[-1] + (0,)
+    FP = 0 
+    TP = 0 
+    TN = 0
+    FN = 0
+
+    device = "cuda:0"
     
-    print(len(inputs))
-    print(len(outputs))
+    model_dir = args.model_dir
+    log_normal = args.log_normal
+    log_abnormal = args.log_abnormal
 
-    return inputs, outputs
+    WINDOW_SIZE = args.window_size
+    batch = args.batch_size
+
+
+    model = torch.load("Model/centralized_models.pt")
+
+    model.cuda()
+    model.eval()
+    
+    start_time = time.time()
+    
+
+    if not log_normal and not log_abnormal:
+        print("Missing argument. Please enter a filename.")
+        return
+
+    if log_normal:
+        inputs, outputs = generate(log_normal, WINDOW_SIZE)
+        ("Running test on normal logs.")
+        run_test(data_gen(inputs, outputs, WINDOW_SIZE, batch, 5), model, WINDOW_SIZE)
+    
+    if log_abnormal:
+        inputs, outputs = generate(log_abnormal, WINDOW_SIZE)
+        ("Running test on abnormal logs.")
+        run_test(data_gen(inputs, outputs, WINDOW_SIZE, batch, 5), model, WINDOW_SIZE)
+
+#     A = 100 * (TP + TN)/(TP + TN + FP + FN)
+#     P = 100 * TP / (TP + FP)
+#     R = 100 * TP / (TP + FN)
+#     F1 = 2 * P * R / (P + R)
+#     print('True positive (TP): {}, \ntrue negative (TN): {}, \nfalse positive (FP): {}, \nfalse negative (FN): {}, \nAccuracy: {:.3f}%, \nPrecision: {:.3f}%, \nRecall: {:.3f}%, \nF1-measure: {:.3f}%'.format(TP, TN, FP, FN, A, P, R, F1))
+
+    end_time = time.time()
+    epoch_mins, epoch_secs = epoch_time(start_time, end_time)
+    print(f'Training Time: {epoch_mins}m {epoch_secs}s')
+
+    return
+
+def epoch_time(start_time: int, end_time: int):
+    elapsed_time = end_time - start_time
+    elapsed_mins = int(elapsed_time / 60)
+    elapsed_secs = int(elapsed_time - (elapsed_mins * 60))
+
+    return elapsed_mins, elapsed_secs
