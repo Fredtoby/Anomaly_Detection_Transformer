@@ -1,11 +1,6 @@
-Dataset/1/
-Dataset/54/
-Dataset/hdfs_train0
-Dataset/hdfs_train1
-Dataset/hdfs_train2
-Dataset/hdfs_train3
-Dataset/HDFS/sample
+Dataset/HDFS
 Drain_result/
+runs
 etc/
 images/federated/
 Model/
@@ -24,4 +19,4 @@ linux_sequences
 *.txt
 *log
 *.csv
-
+*.sh

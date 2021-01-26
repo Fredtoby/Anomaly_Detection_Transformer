@@ -5,12 +5,15 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--log_file', default='HDFS/hdfs_train', type=str, help='parsed log file')
-    parser.add_argument('--batch_size', default=100, type=int, help='input batch size for training')
-    parser.add_argument('--epochs', default=100, type=int, help='number of epochs to train')
     parser.add_argument('--window_size', default=10, type=int, help='lenght of training window')
-    parser.add_argument('--hidden_size', default=1024, type=int, help='hidden size layer')
-    parser.add_argument('--num_layers', default=4, type=int, help='number of encoder and decoders')
-    parser.add_argument('--num_heads', default=4, type=int, help='number of heads')
+
+    parser.add_argument('--batch_size', default=500, type=int, help='input batch size for training')
+    parser.add_argument('--epochs', default=10, type=int, help='number of epochs to train')
+    
+    parser.add_argument('--dropout', default=0.2, type=float, help='number of epochs to train')
+    parser.add_argument('--hidden_size', default=512, type=int, help='hidden size layer')
+    parser.add_argument('--num_layers', default=1, type=int, help='number of encoder and decoders')
+    parser.add_argument('--num_heads', default=1, type=int, help='number of heads')
     parser.add_argument('--seed', default=1, type=int, help='random seed')
 
     parser.add_argument('--num_classes', type=int, help='number of total log keys')
