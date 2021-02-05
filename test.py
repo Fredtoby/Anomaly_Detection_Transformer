@@ -11,6 +11,7 @@ if __name__ == '__main__':
     parser.add_argument('--window_size', default=10, type=int, help='lenght of training window')
     parser.add_argument('--num_candidates', default=10, type=int, help='number of candidates considered correct predict')
     parser.add_argument('--batch_size', default=100, type=int, help='input batch size for training')
+    parser.add_argument('--federated', default=False, type=bool, help='number of gpus of gpus to train')
     parser.add_argument('--num_gpus', default=0, type=int, help='number of gpus of gpus to train')
     parser.add_argument('--model_dir', default='Model/', type=str, help='the directory to store the model')
     parser.add_argument('--data_dir', default='Dataset/', type=str, help='the directory where training data is stored')

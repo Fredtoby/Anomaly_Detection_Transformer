@@ -3,8 +3,8 @@
 
 import numpy as np
 import math, copy, time
-import argparse
 from tqdm import tqdm
+import logging
 
 import torch
 import torch.nn as nn
@@ -15,9 +15,10 @@ from torch.autograd import Variable
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+global max_src_in_batch, max_tgt_in_batch
 
 class EncoderDecoder(nn.Module):
-#    A standard Encoder-Decoder architecture. Base for this and many other models.
+    #Standard Encoder-Decoder architecture. Base for this and many other models.
     def __init__(self, encoder, decoder, src_embed, tgt_embed, generator):
         super(EncoderDecoder, self).__init__()
         self.encoder = encoder
@@ -44,7 +45,7 @@ class Generator(nn.Module):
         self.proj = nn.Linear(d_model, vocab)
 
     def forward(self, x):
-        return F.log_softmax(self.proj(x), dim=-1)
+        return F.log_softmax(self.proj(x), dim =-1)
 
 def clones(module, N):
     #Produce N identical layers.
@@ -67,15 +68,15 @@ class Encoder(nn.Module):
 
 class LayerNorm(nn.Module):
     #Construct a layernorm module (See citation for details).
-    def __init__(self, features, eps=1e-6):
+    def __init__(self, features, eps = 1e-6):
         super(LayerNorm, self).__init__()
         self.a_2 = nn.Parameter(torch.ones(features))
         self.b_2 = nn.Parameter(torch.zeros(features))
         self.eps = eps
 
     def forward(self, x):
-        mean = x.mean(-1, keepdim=True)
-        std = x.std(-1, keepdim=True)
+        mean = x.mean(-1, keepdim =True)
+        std = x.std(-1, keepdim =True)
         return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
 
 
@@ -117,7 +118,7 @@ class Decoder(nn.Module):
             x = layer(x, memory, src_mask, tgt_mask)
         return self.norm(x)
 
-    
+
 class DecoderLayer(nn.Module):
     "Decoder is made of self-attn, src-attn, and feed forward (defined below)"
     def __init__(self, size, self_attn, src_attn, feed_forward, dropout):
@@ -135,15 +136,13 @@ class DecoderLayer(nn.Module):
         x = self.sublayer[1](x, lambda x: self.src_attn(x, m, m, src_mask))
         return self.sublayer[2](x, self.feed_forward)
 
-    
 def subsequent_mask(size):
     "Mask out subsequent positions."
     attn_shape = (1, size, size)
-    subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8')
+    subsequent_mask = np.triu(np.ones(attn_shape), k = 1).astype('uint8')
     return torch.from_numpy(subsequent_mask) == 0
 
-
-def attention(query, key, value, mask=None, dropout=None):
+def attention(query, key, value, mask =None, dropout =None):
     "Compute 'Scaled Dot Product Attention'"
     d_k = query.size(-1)
     scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)
@@ -156,7 +155,7 @@ def attention(query, key, value, mask=None, dropout=None):
 
 
 class MultiHeadedAttention(nn.Module):
-    def __init__(self, h, d_model, dropout=0.1):
+    def __init__(self, h, d_model, dropout =0.1):
         "Take in model size and number of heads."
         super(MultiHeadedAttention, self).__init__()
         assert d_model % h == 0
@@ -165,9 +164,9 @@ class MultiHeadedAttention(nn.Module):
         self.h = h
         self.linears = clones(nn.Linear(d_model, d_model), 4)
         self.attn = None
-        self.dropout = nn.Dropout(p=dropout)
+        self.dropout = nn.Dropout(p = dropout)
         
-    def forward(self, query, key, value, mask=None):
+    def forward(self, query, key, value, mask =None):
         if mask is not None:
             # Same mask applied to all h heads.
             mask = mask.unsqueeze(1)
@@ -178,7 +177,7 @@ class MultiHeadedAttention(nn.Module):
              for l, x in zip(self.linears, (query, key, value))]
         
         # 2) Apply attention on all the projected vectors in batch. 
-        x, self.attn = attention(query, key, value, mask=mask, dropout=self.dropout)
+        x, self.attn = attention(query, key, value, mask = mask, dropout = self.dropout)
         
         # 3) "Concat" using a view and apply a final linear. 
         x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
@@ -187,7 +186,7 @@ class MultiHeadedAttention(nn.Module):
 
 class PositionwiseFeedForward(nn.Module):
     "Implements FFN equation."
-    def __init__(self, d_model, d_ff, dropout=0.1):
+    def __init__(self, d_model, d_ff, dropout =0.1):
         super(PositionwiseFeedForward, self).__init__()
         self.w_1 = nn.Linear(d_model, d_ff)
         self.w_2 = nn.Linear(d_ff, d_model)
@@ -209,9 +208,9 @@ class Embeddings(nn.Module):
 
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, dropout, max_len=5000):
+    def __init__(self, d_model, dropout, max_len = 5000):
         super(PositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p=dropout)
+        self.dropout = nn.Dropout(p = dropout)
         
         # Compute the positional encodings once in log space.
         pe = torch.zeros(max_len, d_model)
@@ -223,11 +222,10 @@ class PositionalEncoding(nn.Module):
         self.register_buffer('pe', pe)
         
     def forward(self, x):
-        x = x + Variable(self.pe[:, :x.size(1)], requires_grad=False)
+        x = x + Variable(self.pe[:, :x.size(1)], requires_grad =False)
         return self.dropout(x)
 
-
-def make_model(src_vocab, tgt_vocab, N=6, d_model=512, d_ff=2048, h=8, dropout=0.1):
+def make_model(src_vocab, tgt_vocab, N = 1, d_model = 512, d_ff = 2048, h = 1, dropout =0.5):
     "Helper: Construct a model from hyperparameters."
     c = copy.deepcopy
     attn = MultiHeadedAttention(h, d_model)
@@ -250,7 +248,7 @@ def make_model(src_vocab, tgt_vocab, N=6, d_model=512, d_ff=2048, h=8, dropout=0
 
 class Batch:
     "Object for holding a batch of data with mask during training."
-    def __init__(self, src, trg=None, pad=0):
+    def __init__(self, src, trg =None, pad =0):
         self.src = src
         self.src_mask = (src != pad).unsqueeze(-2)
         if trg is not None:
@@ -258,7 +256,7 @@ class Batch:
             self.trg_y = trg[:, 1:]
             self.trg_mask = self.make_std_mask(self.trg, pad)
             self.ntokens = (self.trg_y != pad).data.sum()
-    
+
     @staticmethod
     def make_std_mask(tgt, pad):
         "Create a mask to hide padding and future words."
@@ -266,19 +264,22 @@ class Batch:
         tgt_mask = tgt_mask & Variable(subsequent_mask(tgt.size(-1)).type_as(tgt_mask.data))
         return tgt_mask
 
-
-global max_src_in_batch, max_tgt_in_batch
 def batch_size_fn(new, count, sofar):
     "Keep augmenting batch and calculate total number of tokens + padding."
     global max_src_in_batch, max_tgt_in_batch
     if count == 1:
         max_src_in_batch = 0
         max_tgt_in_batch = 0
-    max_src_in_batch = max(max_src_in_batch,  len(new.src))
-    max_tgt_in_batch = max(max_tgt_in_batch,  len(new.trg) + 2)
+    max_src_in_batch = max(max_src_in_batch, len(new.src))
+    max_tgt_in_batch = max(max_tgt_in_batch, len(new.trg) + 2)
     src_elements = count * max_src_in_batch
     tgt_elements = count * max_tgt_in_batch
     return max(src_elements, tgt_elements)
+
+def rebatch(pad_idx, batch):
+    "Fix order in torchtext to match ours"
+    src, trg = batch.src.transpose(0, 1), batch.trg.transpose(0, 1)
+    return Batch(src, trg, pad_idx)
 
 
 class NoamOpt:
@@ -307,14 +308,14 @@ class NoamOpt:
         return self.factor * (self.model_size ** (-0.5) * min(step ** (-0.5), step * self.warmup ** (-1.5)))
 
 def get_std_opt(model):
-    return NoamOpt(model.src_embed[0].d_model, 2, 4000, torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
+    return NoamOpt(model.src_embed[0].d_model, 2, 4000, torch.optim.Adam(model.parameters(), lr =0, betas =(0.9, 0.98), eps = 1e-9))
 
 
 class LabelSmoothing(nn.Module):
     "Implement label smoothing."
-    def __init__(self, size, padding_idx, smoothing=0.0):
+    def __init__(self, size, padding_idx, smoothing =0.0):
         super(LabelSmoothing, self).__init__()
-        self.criterion = nn.KLDivLoss(size_average=False)
+        self.criterion = nn.KLDivLoss(size_average =False)
         self.padding_idx = padding_idx
         self.confidence = 1.0 - smoothing
         self.smoothing = smoothing
@@ -331,12 +332,12 @@ class LabelSmoothing(nn.Module):
         if mask.dim() > 0:
             true_dist.index_fill_(0, mask.squeeze(), 0.0)
         self.true_dist = true_dist
-        return self.criterion(x, Variable(true_dist, requires_grad=False))
+        return self.criterion(x, Variable(true_dist, requires_grad =False))
 
 
 class SimpleLossCompute:
     "A simple loss compute and train function."
-    def __init__(self, generator, criterion, opt=None):
+    def __init__(self, generator, criterion, opt =None):
         self.generator = generator
         self.criterion = criterion
         self.opt = opt
@@ -350,17 +351,13 @@ class SimpleLossCompute:
             self.opt.optimizer.zero_grad()
         return loss.item() * norm
 
-def rebatch(pad_idx, batch):
-    "Fix order in torchtext to match ours"
-    src, trg = batch.src.transpose(0, 1), batch.trg.transpose(0, 1)
-    return Batch(src, trg, pad_idx)
 
 class MultiGPULossCompute:
     "A multi-gpu loss compute and train function."
-    def __init__(self, generator, criterion, devices, opt=None, chunk_size=5):
+    def __init__(self, generator, criterion, devices, opt =None, chunk_size = 5):
         # Send out to different gpus.
         self.generator = generator
-        self.criterion = nn.parallel.replicate(criterion, devices=devices)
+        self.criterion = nn.parallel.replicate(criterion, devices = devices)
         self.opt = opt
         self.devices = devices
         self.chunk_size = chunk_size
@@ -368,17 +365,17 @@ class MultiGPULossCompute:
     def __call__(self, out, targets, normalize):
         total = 0.0
         
-        generator = nn.parallel.replicate(self.generator, devices=self.devices)
-        out_scatter = nn.parallel.scatter(out, target_gpus=self.devices)
+        generator = nn.parallel.replicate(self.generator, devices = self.devices)
+        out_scatter = nn.parallel.scatter(out, target_gpus = self.devices)
         out_grad = [[] for _ in out_scatter]
-        targets = nn.parallel.scatter(targets, target_gpus=self.devices)
+        targets = nn.parallel.scatter(targets, target_gpus = self.devices)
 
         # Divide generating into chunks.
         chunk_size = self.chunk_size
         for i in range(0, out_scatter[0].size(1), chunk_size):
             # Predict distributions
             out_column = [[Variable(o[:, i:i+chunk_size].data, 
-                                    requires_grad=self.opt is not None)] 
+                                    requires_grad = self.opt is not None)] 
                            for o in out_scatter]
             gen = nn.parallel.parallel_apply(generator, out_column)
 
@@ -389,7 +386,7 @@ class MultiGPULossCompute:
             loss = nn.parallel.parallel_apply(self.criterion, y)
 
             # Sum and normalize loss
-            l = nn.parallel.gather(loss, target_device=self.devices[0])
+            l = nn.parallel.gather(loss, target_device = self.devices[0])
             # l = l.sum()[0] / normalize
             l = l.sum() / normalize
             total += l.data
@@ -401,12 +398,12 @@ class MultiGPULossCompute:
                 for j, l in enumerate(loss):
                     out_grad[j].append(out_column[j][0].grad.data.clone())
 
-        # Backprop all loss through transformer.            
+        # Backprop all loss through transformer.
         if self.opt is not None:
-            out_grad = [Variable(torch.cat(og, dim=1)) for og in out_grad]
+            out_grad = [Variable(torch.cat(og, dim = 1)) for og in out_grad]
             o1 = out
-            o2 = nn.parallel.gather(out_grad, target_device=self.devices[0])
-            o1.backward(gradient=o2)
+            o2 = nn.parallel.gather(out_grad, target_device = self.devices[0])
+            o1.backward(gradient = o2)
             self.opt.step()
             self.opt.optimizer.zero_grad()
         return total * normalize
@@ -431,16 +428,13 @@ def run_epoch(data_iter, model, loss_compute):
             tokens = 0
     return total_loss / total_tokens
 
-def predict(model, src, src_mask, tgt, max_len, start_symbol, pred, g):
-    device = "cuda:0"
+def predict(model, src, src_mask, tgt, max_len, start_symbol, g = 10):
+    "Standard Sequence Inference Function"
 
     src = src.to(device)
     src_mask = src_mask.to(device)
-    
     memory = model.encode(src, src_mask)
     ys = torch.ones(1, 1).fill_(start_symbol).type_as(src.data)
-    
-    torch.set_printoptions(precision=2)
 
     for i in range(max_len-1):
         out = model.decode(memory, src_mask, Variable(ys), Variable(subsequent_mask(ys.size(1)).type_as(src.data)))
@@ -449,42 +443,31 @@ def predict(model, src, src_mask, tgt, max_len, start_symbol, pred, g):
         predicted = torch.argsort(prob, 1)[0][-g:]
         label = tgt[0][i].to(device)
 
-        if label == 0:
-            return ys
-        
-        if pred:
-            print("Incoming log:", label) 
-            print("Candidate logs:", predicted, "\n")
-#             print("Probabilities: ", torch.sort(prob,1)[0][0][-g:])
-
         if label not in predicted:
             abn = torch.tensor([-1])
             abn = abn.data[0]
-            ys = torch.cat([ys,torch.ones(1, 1).type_as(src.data).fill_(label)], dim=1)
-            ys = torch.cat([ys,torch.ones(1, 1).type_as(src.data).fill_(abn)], dim=1)
+            ys = torch.cat([ys,torch.ones(1, 1).type_as(src.data).fill_(label)], dim = 1)
+            ys = torch.cat([ys,torch.ones(1, 1).type_as(src.data).fill_(abn)], dim = 1)
             return ys[:,1:]
-        else:        
-            ys = torch.cat([ys,torch.ones(1, 1).type_as(src.data).fill_(label)], dim=1)
+        else:
+            ys = torch.cat([ys,torch.ones(1, 1).type_as(src.data).fill_(label)], dim = 1)
 
-                    
     return ys[:,1:]
 
 def data_gen(dataloader):
-
     for seq, label in dataloader:
-
-        sos = torch.ones((seq.shape[0], 1),dtype=int).to(device)
-        eos = torch.ones((label.shape[0], 1),dtype=int).to(device)
+        sos = torch.ones((seq.shape[0], 1),dtype = int).to(device)
+        eos = torch.ones((label.shape[0], 1),dtype = int).to(device)
 
         t1 = torch.cat((sos, seq), 1)
         t2 = torch.cat((eos, label), 1)
         
-        src = Variable(t1, requires_grad=False)
-        tgt = Variable(t2, requires_grad=False)
+        src = Variable(t1, requires_grad =False)
+        tgt = Variable(t2, requires_grad =False)
 
         yield Batch(src, tgt, 0)
 
-def generate(name, data_dir, window_size):
+def generate(name, data_dir, window_size = 10):
     num_sessions = 0
     inputs = []
     outputs = []
@@ -503,156 +486,169 @@ def generate(name, data_dir, window_size):
                     outputs[-1] = outputs[-1] + (0,)*(window_size-len(outputs[-1]))
             num_sessions += 1
 
-    print("Session", len(inputs))
-    print("seqs", len(inputs))
+    print("Sessions", len(inputs))
 
-    dataset = TensorDataset(torch.tensor(inputs, dtype=torch.int).to(device), torch.tensor(outputs).to(device))
+    dataset = TensorDataset(torch.tensor(inputs, dtype = torch.int).to(device), torch.tensor(outputs).to(device))
 
     return dataset
 
 def train(args):
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    log_file = args.log_file
-    data_dir = args.data_dir
-    model_dir = args.model_dir
-
-    VOCAB_SIZE = args.num_classes
-    WINDOW_SIZE = args.window_size
-
-    N = args.num_layers
-    d_model = args.hidden_size
-    h = args.num_heads
-    dropout = args.dropout
-
+    window_size = args.window_size
     batch = args.batch_size
     epochs = args.epochs
     use_cuda = args.num_gpus > 0
-    
+
     torch.manual_seed(args.seed)
 
     if use_cuda:
-        torch.cuda.manual_seed(args.seed)    
+        torch.cuda.manual_seed(args.seed)
         if args.num_gpus == 1:
             devices = [0]
         elif args.num_gpus == 2:
             devices = [0, 1]
 
     #Build model
-    model = make_model(VOCAB_SIZE, VOCAB_SIZE, N=N, d_model=d_model, h=h, dropout=dropout)
-    criterion = LabelSmoothing(size = VOCAB_SIZE, padding_idx=0, smoothing=0.1)
-    model_opt = NoamOpt(model.src_embed[0].d_model, 1, 2000, torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
+    model = make_model( args.num_classes, args.num_classes, N = args.num_layers, h = args.num_heads, dropout = args.dropout)
+    criterion = LabelSmoothing(size = args.num_classes, padding_idx =0, smoothing =0.1)
+    model_opt = NoamOpt(model.src_embed[0].d_model, 1, 2000, 
+                        torch.optim.Adam(model.parameters(), lr =0, betas =(0.9, 0.98), eps = 1e-9))
 
-    seq_dataset = generate(log_file, data_dir, WINDOW_SIZE)
-    dataloader = DataLoader(seq_dataset, batch, shuffle=True)
+    #Build dataset
+    seq_dataset = generate(args.log_file, args.data_dir, window_size)
+    dataloader = DataLoader(seq_dataset, batch, shuffle =True)
     
     if use_cuda:
         model.cuda()
         criterion.cuda()
-        model_par = nn.DataParallel(model, device_ids=devices)
+        model_par = nn.DataParallel(model, device_ids = devices)
 
         for epoch in tqdm(range(epochs)):
-            print(epoch)
             model_par.train()
-            run_epoch(data_gen(dataloader), model_par, MultiGPULossCompute(model.generator, criterion, devices=devices, opt=model_opt))
+            run_epoch(data_gen(dataloader), model_par, 
+                                MultiGPULossCompute(model.generator, criterion, devices = devices, opt = model_opt))
 
             # model_par.eval()
-            # loss = run_epoch(data_gen(dataloader, WINDOW_SIZE, batch), model_par, MultiGPULossCompute(model.generator, criterion, devices=devices, opt=None))            
+            # loss = run_epoch(data_gen(dataloader), model_par, 
+            #                           MultiGPULossCompute(model.generator, criterion, devices = devices, opt =None))            
             # print(loss)
     else:
         model.train()
-        run_epoch(data_gen(log_file, WINDOW_SIZE, batch), model, SimpleLossCompute(model.generator, criterion, model_opt))
-        model.eval()
-        print(run_epoch(data_gen(log_file, WINDOW_SIZE, batch), model, SimpleLossCompute(model.generator, criterion, None)))
+        run_epoch(data_gen(args.log_file, window_size, batch), model, SimpleLossCompute(model.generator, criterion, model_opt))
+        # model.eval()
+        # print(run_epoch(data_gen(log_file, window_size, batch), model, SimpleLossCompute(model.generator, criterion, None)))
 
-    torch.save(model, "Model/centralized_models.pt")
-    torch.save(model.state_dict(), "Model/centralized_model.pt")
+    torch.save(model, args.model_dir + "centralized_models.pt")
+    test(args)
 
     return model
 
 def federated_training(args):
-
-    log_file = args.log_file
-    data_dir = args.data_dir
-    model_dir = args.model_dir
-
-    VOCAB_SIZE = args.num_classes
-    WINDOW_SIZE = args.window_size
-
-    N = args.num_layers
-    d_model = args.hidden_size
-    h = args.num_heads
-    
+    window_size = args.window_size    
     batch = args.batch_size
     epochs = args.epochs
-    use_cuda = args.num_gpus > 0    
+    use_cuda = args.num_gpus > 0
 
     rounds = args.rounds
     clients = args.clients
     frac = args.frac
 
-    devices = [0, 1]
-
     torch.manual_seed(args.seed)
 
     if use_cuda:
-        torch.cuda.manual_seed(args.seed)    
+        torch.cuda.manual_seed(args.seed)
         if args.num_gpus == 1:
             devices = [0]
         elif args.num_gpus == 2:
             devices = [0, 1]
 
-    global_model = make_model(VOCAB_SIZE, VOCAB_SIZE, N=N, d_model=d_model, h=h)
-    criterion = LabelSmoothing(size = VOCAB_SIZE, padding_idx=0, smoothing=0.1)
-
-    global_model.cuda()
-    criterion.cuda()
-
-    model_par = nn.DataParallel(global_model, device_ids=devices)
-
-    global_model.train()
-    global_weights = global_model.state_dict()
+    global_model = make_model(args.num_classes, args.num_classes, N = args.num_layers, h = args.num_heads)
+    criterion = LabelSmoothing(size = args.num_classes, padding_idx =0, smoothing =0.1)
 
     start_time = time.time()
-    for roundd in tqdm(range(rounds)):
-        local_weights, local_losses = [], []
-        print(f'\n | Global Training Round : {roundd+1} |\n')
-        
+
+    data_dir = args.data_dir + "/clients_" + str(clients) +"/"
+    print(data_dir)
+    
+    if use_cuda:
+        global_model.cuda()
+        criterion.cuda()
+        model_par = nn.DataParallel(global_model, device_ids = devices)
+
         global_model.train()
-        m = max(int(frac * clients), 1)
-        idxs_users = np.random.choice(range(1, clients+1), m, replace=False)      
-        
-        for i in idxs_users:
-            print("Client:", i)
+        global_weights = global_model.state_dict()
 
-            client_file = log_file + "_" + str(i)
-            seq_dataset = generate(client_file, data_dir, WINDOW_SIZE)
-            dataloader = DataLoader(seq_dataset, batch, shuffle=True)
+        for roundd in tqdm(range(rounds)):
+            local_weights, local_losses = [], []
+            print(f'\n | Global Training Round : {roundd+1} |\n')
+            
+            m = max(int(frac * clients), 1)
+            idxs_users = np.random.choice(range(1, clients+1), m, replace =False)
+            
+            for i in idxs_users:
+                client_file = args.log_file + "_" + str(i)
+                seq_dataset = generate(client_file, data_dir, window_size)
+                dataloader = DataLoader(seq_dataset, batch, shuffle =True)
 
-            model = copy.deepcopy(global_model)
-            model_opt = NoamOpt(model.src_embed[0].d_model, 1, 2000, torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
-            model.cuda()
-            model_par = nn.DataParallel(model, device_ids=devices)
+                model = copy.deepcopy(global_model)
+                model_opt = NoamOpt(model.src_embed[0].d_model, 1, 2000, 
+                                    torch.optim.Adam(model.parameters(), lr =0, betas =(0.9, 0.98), eps = 1e-9))
+                model.cuda()
+                model_par = nn.DataParallel(model, device_ids = devices)
 
-            for epoch in range(epochs):
-                model_par.train()
-                run_epoch(data_gen(dataloader), model_par, MultiGPULossCompute(model.generator, criterion, devices=devices, opt=model_opt))
-                
-                model_par.eval()
-                loss = run_epoch(data_gen(dataloader), model_par, MultiGPULossCompute(model.generator, criterion, devices=devices, opt=None))   
-                print(loss)
+                for epoch in range(epochs):
+                    model_par.train()
+                    run_epoch(data_gen(dataloader), model_par, 
+                                        MultiGPULossCompute(model.generator, criterion, devices = devices, opt = model_opt))
+                    
+                    # model_par.eval()
+                    # loss = run_epoch(data_gen(dataloader), model_par, 
+                    #                   MultiGPULossCompute(model.generator, criterion, devices = devices, opt =None))   
+                    # print(loss)
 
-            local_weights.append(copy.deepcopy(model.state_dict()))
-            torch.save(model.state_dict(), "Model/local_model.pt")
+                local_weights.append(copy.deepcopy(model.state_dict()))
 
-        global_weights = average_weights(local_weights)
-        global_model.load_state_dict(global_weights)
-        torch.save(global_model, "Model/global_models.pt")
-        
-        if (roundd + 1) % 2 == 0:
-            test(args)  
+            global_weights = average_weights(local_weights)
+            global_model.load_state_dict(global_weights)
+            torch.save(global_model, args.model_dir + "global_models.pt")
+            
+            if (roundd + 1) % 2 == 0:
+                test(args)
+    else:
+        for roundd in tqdm(range(rounds)):
+            local_weights, local_losses = [], []
+            print(f'\n | Global Training Round : {roundd+1} |\n')
+            
+            m = max(int(frac * clients), 1)
+            idxs_users = np.random.choice(range(1, clients+1), m, replace =False)
+            
+            for i in idxs_users:
+                client_file = args.log_file + "_" + str(i)
+                seq_dataset = generate(client_file, args.data_dir, window_size)
+                dataloader = DataLoader(seq_dataset, batch, shuffle =True)
+
+                model = copy.deepcopy(global_model)
+                model_opt = NoamOpt(model.src_embed[0].d_model, 1, 2000, 
+                                    torch.optim.Adam(model.parameters(), lr =0, betas =(0.9, 0.98), eps = 1e-9))
+
+                for epoch in range(epochs):
+                    model.train()
+                    run_epoch(data_gen(client_file, window_size, batch), model, SimpleLossCompute(model.generator, criterion, model_opt))
+                    
+                    # model.eval()
+                    # print(run_epoch(data_gen(log_file, window_size, batch), model, SimpleLossCompute(model.generator, criterion, None)))
+
+                local_weights.append(copy.deepcopy(model.state_dict()))
+
+            global_weights = average_weights(local_weights)
+            global_model.load_state_dict(global_weights)
+            torch.save(global_model, args.model_dir + "global_models.pt")
+            
+            if (roundd + 1) % 2 == 0:
+                test(args)
+
     end_time = time.time()
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
+    logging.info(f'Testing Abnormal Time: {epoch_mins}m {epoch_secs}s')
     
     return global_model
 
@@ -669,114 +665,126 @@ def test(args):
     FP = 0 
     TP = 0 
 
-    device = "cuda:0"
-    
-    model_dir = args.model_dir
-    data_dir = args.data_dir
-    
-    log_normal = args.log_normal
-    log_abnormal = args.log_abnormal
+    window_size = args.window_size
+    use_cuda = args.num_gpus > 0
 
-    WINDOW_SIZE = args.window_size
-    num_candidates = args.num_candidates
+    if args.federated:
+        print("Federated training")
+        model = torch.load(args.model_dir + "global_models.pt")
+    else:
+        model = torch.load(args.model_dir + "centralized_models.pt")
 
-    # model = torch.load(model_dir + "global_models.pt")
-    model = torch.load(model_dir + "centralized_models.pt")
-    model.cuda()
+    if use_cuda:
+        device = "cuda:0"
+        model.cuda()
+    else:
+        device = "cpu"
+
+
     model.eval()
-    
-    src_mask = Variable(torch.ones(1, 1, WINDOW_SIZE + 1)).to(device)
-    bos = torch.ones((1, ),dtype=int).to(device)
+
+    # file_results = str(args.clients) + "_" + str(args.num_layers) + "_" + str(args.num_heads) + ".log"
+    logging.basicConfig(filename="results.log", level=logging.DEBUG)
+
+    src_mask = Variable(torch.ones(1, 1, window_size + 1)).to(device)
+    bos = torch.ones((1, ),dtype = int).to(device)
 
     num = 5000
 
     start_time = time.time()
     num_session = 0
-    
+
+    data_dir = 'Dataset/'
+
+    test_normal_loader = test_generate(data_dir + args.log_normal)
+    test_abnormal_loader = test_generate(data_dir + args.log_abnormal)        
+
     with torch.no_grad():
-        with open(data_dir + log_normal, 'r') as f:
-            for line in f.readlines():
-                num_session += 1
-                line = list(map(lambda n: n, map(int, line.strip().split())))
-                for i in range(len(line) - WINDOW_SIZE):
-                    seq = line[i:i + WINDOW_SIZE]
-                    label = line[i+WINDOW_SIZE:(i+WINDOW_SIZE)+WINDOW_SIZE]
+        for line in test_normal_loader:
+    #     with open(args.data_dir + args.log_normal, 'r') as f:
+    #         for line in f.readlines():
+            num_session += 1
+    #             line = list(map(lambda n: n, map(int, line.strip().split())))
+    #             print(line)
+            for i in range(len(line) - window_size):
+                seq = line[i:i + window_size]
+                label = line[i+window_size:(i+window_size)+window_size]
 
-                    t1 = torch.cat((bos, torch.tensor(seq, dtype=torch.int).to(device))).unsqueeze(0)
-                    src = Variable(t1, requires_grad=False)
-                    
-                    t2 = torch.tensor(label, dtype=torch.int).to(device).unsqueeze(0)
-                    tgt = Variable(t2, requires_grad=False)
+                t1 = torch.cat((bos, torch.tensor(seq, dtype = torch.int).to(device))).unsqueeze(0)
+                src = Variable(t1, requires_grad =False)
+                
+                t2 = torch.tensor(label, dtype = torch.int).to(device).unsqueeze(0)
+                tgt = Variable(t2, requires_grad =False)
 
-                    pred = predict(model, src, src_mask, tgt, max_len=len(tgt)+1, start_symbol=1, pred=False, g=num_candidates) 
+                pred = predict(model, src, src_mask, tgt, max_len = len(tgt)+1, start_symbol = 1, g = args.num_candidates) 
 
-                    if -1 in pred: 
-                        FP+=1
-                        break
-                        
-                if num_session%1000 == 0:
-                    print(num_session)
-                if num_session == num:
+                if -1 in pred: 
+                    FP+= 1
                     break
-    
+                    
+            if num_session%1000 == 0:
+                print(num_session)
+
+            if num_session == num:
+                break
+
     TN = num_session - FP
+
+
     end_time = time.time()
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
-#     f = open(args.log_file + "_" + str(args.num_layers) + "_" + str(args.num_heads) + "_" + "results","w+")
-#     f.write(f'Testing Normal Time: {epoch_mins}m {epoch_secs}s')
-#     f.close()
+    logging.info(f'Testing Abnormal Time: {epoch_mins}m {epoch_secs}s')
 
-    print(f'Testing Normal Time: {epoch_mins}m {epoch_secs}s')
 
     start_time = time.time()
     num_session = 0
 
     with torch.no_grad():
-        with open(data_dir + log_abnormal, 'r') as f:
-            for line in f.readlines():
-                num_session += 1
-                line = list(map(lambda n: n, map(int, line.strip().split())))
-                for i in range(len(line) - WINDOW_SIZE):
-                    seq = line[i:i + WINDOW_SIZE]
-                    label = line[i+WINDOW_SIZE:(i+WINDOW_SIZE)+WINDOW_SIZE]
+        for line in test_abnormal_loader:        
+    #     with open(args.data_dir + args.log_abnormal, 'r') as f:
+    #         for line in f.readlines():
+            num_session += 1
+            # line = list(map(lambda n: n, map(int, line.strip().split())))
+            # print(line)
+            for i in range(len(line) - window_size):
+                seq = line[i:i + window_size]
+                label = line[i+window_size:(i+window_size)+window_size]
+                
+                t1 = torch.cat((bos, torch.tensor(seq, dtype = torch.int).to(device))).unsqueeze(0)
+                src = Variable(t1, requires_grad =False)
+                
+                t2 = torch.tensor(label, dtype = torch.int).to(device).unsqueeze(0)
+                tgt = Variable(t2, requires_grad =False)
 
-                    t1 = torch.cat((bos, torch.tensor(seq, dtype=torch.int).to(device))).unsqueeze(0)
-                    src = Variable(t1, requires_grad=False)
-                    
-                    t2 = torch.tensor(label, dtype=torch.int).to(device).unsqueeze(0)
-                    tgt = Variable(t2, requires_grad=False)
+                pred = predict(model, src, src_mask, tgt, max_len = len(tgt)+1, start_symbol = 1, g = args.num_candidates) 
 
-                    pred = predict(model, src, src_mask, tgt, max_len=len(tgt)+1, start_symbol=1, pred=False, g=num_candidates) 
-
-                    if -1 in pred: 
-                        TP+=1
-                        break
-                if num_session%1000 == 0:
-                    print(num_session)
-                if num_session == num:
+                if -1 in pred: 
+                    TP+= 1
                     break
 
-    FN = num_session - TP
+            if num_session%1000 == 0:
+                print(num_session)
+            if num_session == num:
+                break
+
+    # FN = num_session - TP
+
     end_time = time.time()
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
-    
-    # f = open(args.log_file + "_" + str(args.num_layers) + "_" + str(args.num_heads) + "_" + "results","a")
-    # f.write(f'Testing Abnormal Time: {epoch_mins}m {epoch_secs}s')
+    # TN = len(test_normal_loader) - FP    
+    FN = len(test_abnormal_loader) - TP
 
-    print(f'Testing Abnormal Time: {epoch_mins}m {epoch_secs}s')
+    logging.info(f'Testing Abnormal Time: {epoch_mins}m {epoch_secs}s')
 
     A = 100 * (TP + TN)/(TP + TN + FP + FN)
     P = 100 * TP / (TP + FP)
     R = 100 * TP / (TP + FN)
     F1 = 2 * P * R / (P + R)
 
-    # f.write('True positive (TP): {}, \ntrue negative (TN): {}, \nfalse positive (FP): {}, \nfalse negative (FN): {}, \nAccuracy: {:.3f}%, \nPrecision: {:.3f}%, \nRecall: {:.3f}%, \nF1-measure: {:.3f}%'.format(TP, TN, FP, FN, A, P, R, F1))
-    print(args.dropout)
-    print('True positive (TP): {}, \ntrue negative (TN): {}, \nfalse positive (FP): {}, \nfalse negative (FN): {}, \nAccuracy: {:.3f}%, \nPrecision: {:.3f}%, \nRecall: {:.3f}%, \nF1-measure: {:.3f}%'.format(TP, TN, FP, FN, A, P, R, F1))
+    logging.info('True positive (TP): {}, \ntrue negative (TN): {}, \nfalse positive (FP): {}, \nfalse negative (FN): {}, \nAccuracy: {:.3f}%, \nPrecision: {:.3f}%, \nRecall: {:.3f}%, \nF1-measure: {:.3f}%'.format(TP, TN, FP, FN, A, P, R, F1))
 
-    # f.close()
     return
 
 def epoch_time(start_time: int, end_time: int):
@@ -785,3 +793,17 @@ def epoch_time(start_time: int, end_time: int):
     elapsed_secs = int(elapsed_time - (elapsed_mins * 60))
 
     return elapsed_mins, elapsed_secs
+
+def test_generate(name, window_size=10):
+    # If you what to replicate the DeepLog paper results(Actually, I have a better result than DeepLog paper results),
+    # you should use the 'list' not 'set' to obtain the full dataset, I use 'set' just for test and acceleration.
+    hdfs = set()
+    # hdfs = []
+    with open( name, 'r') as f:
+        for ln in f.readlines():
+            ln = list(map(lambda n: n, map(int, ln.strip().split())))
+            ln = ln + [0] * (window_size + 1 - len(ln))
+            hdfs.add(tuple(ln))
+            # hdfs.append(tuple(ln))
+    print('Number of sessions({}): {}'.format(name, len(hdfs)))
+    return hdfs
