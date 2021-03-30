@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 import importlib
 import re
-
+import pickle
 from Parsers import Spell
 
 importlib.reload(Spell)
@@ -37,7 +37,7 @@ def parse(log_source, log_file, algorithm):
             r'(/|)([0-9]+\.){3}[0-9]+(:[0-9]+|)(:|)', # IP
             r'(?<=[^A-Za-z0-9])(\-?\+?\d+)(?=[^A-Za-z0-9])|[0-9]+$', # Numbers
         ]
-        tau = 0.6
+        tau = 0.66
     #Linux Logs
     elif log_source == 'Linux':
         log_format = '<Month> <Date> <Time> <Level> <Component>(\[<PID>\])?: <Content>'
@@ -47,19 +47,21 @@ def parse(log_source, log_file, algorithm):
             r'(/|)([0-9]+\.){3}[0-9]+(:[0-9]+|)(:|)', # IP
             r'(?<=[^A-Za-z0-9])(\-?\+?\d+)(?=[^A-Za-z0-9])|[0-9]+$', # Numbers
         ]   
-        tau = 0.55
+        tau = 0.50
     #Openstack Logs
     elif log_source == 'Openstack':
-        log_format = '<Logrecord> <Date> <Time> <Pid> <Level> <Component> \[<ADDR>\] \[<Instance>\] <Content>'
+#         log_format = '<Logrecord> <Date> <Time> <Pid> <Level> <Component> \[<ADDR>\] \[<Instance>\] <Content>'
+        log_format = '<Logrecord> <Date> <Time> <Pid> <Level> <Component> \[<ADDR>\] <Content>'
 #         regex = [r'((\d+\.){3}\d+,?)+', r'/.+?\s', r'\d+', r'\w{8}-\w{4}-\w{4}-\w{4}-\w{12}']
         regex      = [
             r'((\d+\.){3}\d+,?)+', 
             r'/.+?\s', r'\d+', 
+#             's/\b[a-z0-9]\{8\}-[a-z0-9]\{4\}-[a-z0-9]\{4\}-[a-z0-9]\{4\}-[a-z0-9]\{12\}\b/MASKED_ID/g'
             r'\w{8}\-\w{4}\-\w{4}\-\w{4}\-\w{12}'
             r'(/|)([0-9]+\.){3}[0-9]+(:[0-9]+|)(:|)', # IP
             r'(?<=[^A-Za-z0-9])(\-?\+?\d+)(?=[^A-Za-z0-9])|[0-9]+$', # Numbers
         ]  
-        tau = 0.7
+        tau = 0.66
 
     #Initialize parser
     parser = Spell.LogParser(indir=input_dir, outdir=output_dir, log_format=log_format, tau=tau, rex=regex)
@@ -68,38 +70,48 @@ def parse(log_source, log_file, algorithm):
 #     Convert parse into sequences
     if log_source == "Linux":
         linux_seq(parsed_logs)
-    elif log_source == "HDFS":
-        hdfs_seq(parsed_logs, input_dir, log_source)
-    elif log_source == "Openstack":
-        openstack_seq2(parsed_logs)
+#     elif log_source == "HDFS":
+#         hdfs_seq(parsed_logs, input_dir, log_source)
+#     elif log_source == "Openstack":
+# #         openstack_seq_instance(parsed_logs)
 #         openstack_seq(output_dir, log_source)
     
     return
     
 def linux_seq(df_log):
-    norm_seq = {}
-    abn_seq = {}
+    
+    df_log.Month = pd.to_datetime(df_log.Month, format='%b').dt.month
+    df_log['Date'] = df_log['Date'].astype(str)
+    df_log['Month'] = df_log['Month'].astype(str)    
+    
     searchfor = ['jy|bt|mw']
 
     norm = df_log[~df_log.Level.str.contains('|'.join(searchfor), regex=True)]
     abnorm = df_log[df_log.Level.str.contains('|'.join(searchfor), regex=True)]
-
-    np.savetxt(r'Dataset/Linux/linux_normal', norm['Log Key'].values, fmt='%d', newline=' ')
-    np.savetxt(r'Dataset/Linux/linux_abnormal', abnorm['Log Key'].values, fmt='%d', newline=' ')
+    
+    normal = linux_time(norm)
+    linux_file_generator("Linux", 'normal', normal)
+    
+    abnormal = linux_time(abnorm)
+    linux_file_generator("Linux", 'abnormal', abnormal)    
     
     return
 
-def openstack_seq2(df_log):
-#     norm_seq = {}
-#     abn_seq = {}
-#     searchfor = ['2017-05-14']
+def linux_time(df):
+#     df['datetime'] = pd.to_datetime(df['Time'])
+    df['datetime'] = pd.to_datetime('2020' + "-" + df['Month'] + "-" + df['Date'] + " " + df['Time'])
+    df = df[['datetime', 'Log Key']]
+    deeplog_df = df.set_index('datetime').resample('1min').apply(_custom_resampler).reset_index()
+    return deeplog_df
 
-#     norm = df_log[~df_log.Level.str.contains('|'.join(searchfor), regex=True)]
-#     abnorm = df_log[df_log.Level.str.contains('|'.join(searchfor), regex=True)]
+def linux_file_generator(log_source, filename, df):
+    with open("Dataset/" + log_source + "/" + log_source + "_" + filename, 'w') as f:
+        for event_id_list in df['Log Key']:
+            for event_id in event_id_list:
+                f.write(str(event_id) + ' ')
+            f.write('\n') 
 
-#     np.savetxt(r'Dataset/Openstack/openstack_normal', norm['Log Key'].values, fmt='%d', newline=' ')
-#     np.savetxt(r'Dataset/Openstack/openstack_abnormal', abnorm['Log Key'].values, fmt='%d', newline=' ')
-    
+def openstack_seq_instance(df_log):
     normal = df_log[df_log["Date"] != "2017-05-14"]
     abnormal = df_log[df_log["Date"] == "2017-05-14"]
     normal_logs = normal.groupby("Instance")["Log Key"]
@@ -156,24 +168,23 @@ def hdfs_seq(df_log, output_dir, log_source):
     return
             
 def openstack_seq(output_dir, log_source):
-    df = pd.read_csv(f'{output_dir}openstack_normal1.log_structured.csv')
-    df_normal = pd.read_csv(f'{output_dir}openstack_normal2.log_structured.csv')
-    df_abnormal = pd.read_csv(f'{output_dir}openstack_abnormal.log_structured.csv')
+    df = pd.read_csv('Spell_results/openstack.log_structured.csv')
+    df_train = df[df["Date"] == "2017-05-17"]
+    df_normal = df[df["Date"] == "2017-05-16"]
+    df_abnormal = df[df["Date"] == "2017-05-14"]
 
-    join_df = [df, df_normal, df_abnormal]
-    dfs = pd.concat(join_df)
-    event_id_map = dict()
-    for i, event_id in enumerate(dfs['EventId'].unique(), 1):
-        event_id_map[event_id] = i
+    log_source="Openstack"
 
-    deeplog_train = deeplog_df_transfer(df, event_id_map)
-    openstack_file_generator(log_source, 'train', deeplog_train)
+    deeplog_test_normal = deeplog_df_transfer(df_normal)
+    openstack_file_generator(log_source, 'train', deeplog_test_normal)
 
-    deeplog_test_normal = deeplog_df_transfer(df_normal, event_id_map)
-    openstack_file_generator(log_source, 'test_normal', deeplog_test_normal)
+    deeplog_test_normal = deeplog_df_transfer(df_normal)
+    openstack_file_generator(log_source, 'test_normal', deeplog_test_normal)    
 
-    deeplog_test_abnormal = deeplog_df_transfer(df_abnormal, event_id_map)
+    deeplog_test_abnormal = deeplog_df_transfer(df_abnormal)
     openstack_file_generator(log_source, 'test_abnormal', deeplog_test_abnormal)
+
+    return
 
 def hdfs_file_generator(input_dir, log_source, seqs, abn_seq = ''):
     with open(input_dir + log_source + '_normal', 'w') as f:
@@ -187,7 +198,7 @@ def hdfs_file_generator(input_dir, log_source, seqs, abn_seq = ''):
                 f.write(str(log_key)+" ")
             f.write("\n")
 
-def pkl_to_csv(pkl_file, log_source):
+def pkl_to_csv(pkl_file, log_source, machine):
     with open('../System Logs/' + pkl_file, 'rb') as f:
         data = pickle.load(f)
 
@@ -196,7 +207,7 @@ def pkl_to_csv(pkl_file, log_source):
     data = data.message
     
     file = pkl_file.split('.')[0]
-    data.to_csv("Dataset/" + log_source + '/' + file, index=False, header=False)
+    data.to_csv("Dataset/" + log_source + '/' + machine + '/' + file, index=False, header=False)
     
     return file
 
@@ -222,22 +233,18 @@ def federated_split(log_seq, log_source, clients):
         f.close()
         
 def backtrace(pred, log_source, algorithm):
-    logs = []
-    log_template = pd.read_csv(algorithm + "_result/" + log_source + "_templates.csv") 
+    log_template = pd.read_csv(algorithm + "_results/" + log_source + ".log_templates.csv") 
     y = np.squeeze(pred.tolist())
-    for log in y:
+    
+    for log in pred:
+        log = log.cpu().detach().numpy() 
         if log == -1: continue
-        if log == 27:
-            logs.append('<*>BLOCK* NameSystem<*>addStoredBlock: Redundant addStoredBlock request received')
-        else:
-            print(log, log_template['EventTemplate'][log-1])
-            logs.append(log_template['EventTemplate'][log-1])
-    return logs
+        print(log, log_template.loc[log_template['Log Key']==log]['Message'])
         
-def deeplog_df_transfer(df, event_id_map):
+def deeplog_df_transfer(df):
     df['datetime'] = pd.to_datetime(df['Date'] + ' ' + df['Time'])
-    df = df[['datetime', 'EventId']]
-    df['EventId'] = df['EventId'].apply(lambda e: event_id_map[e] if event_id_map.get(e) else -1)
+    df = df[['datetime', 'Log Key']]
+#     df['EventId'] = df['EventId'].apply(lambda e: event_id_map[e] if event_id_map.get(e) else -1)
     deeplog_df = df.set_index('datetime').resample('1min').apply(_custom_resampler).reset_index()
     return deeplog_df
 
@@ -246,7 +253,7 @@ def _custom_resampler(array_like):
 
 def openstack_file_generator(log_source, filename, df):
     with open("Dataset/" + log_source + "/" + log_source + "_" + filename, 'w') as f:
-        for event_id_list in df['EventId']:
+        for event_id_list in df['Log Key']:
             for event_id in event_id_list:
                 f.write(str(event_id) + ' ')
             f.write('\n')
