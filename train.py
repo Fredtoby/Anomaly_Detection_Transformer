@@ -4,13 +4,13 @@ import Transformer as tnsf
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
-#     parser.add_argument('--log_file', default='HDFS/hdfs_train', type=str, help='parsed log file')
-#     parser.add_argument('--log_normal', default='HDFS/hdfs_test_normal', type=str, help='parsed log file of normal testing data')
-#     parser.add_argument('--log_abnormal', default='HDFS/hdfs_test_abnormal', type=str, help='parsed log file of abnormal testing data')
+    parser.add_argument('--log_file', default='HDFS/hdfs_train', type=str, help='parsed log file')
+    parser.add_argument('--log_normal', default='HDFS/hdfs_test_normal', type=str, help='parsed log file of normal testing data')
+    parser.add_argument('--log_abnormal', default='HDFS/hdfs_test_abnormal', type=str, help='parsed log file of abnormal testing data')
 
-    parser.add_argument('--log_file', default='Linux/linux_train', type=str, help='parsed log file')
-    parser.add_argument('--log_normal', default='Linux/linux_test_normal', type=str, help='parsed log file of normal testing data')
-    parser.add_argument('--log_abnormal', default='Linux/linux_abnormal', type=str, help='parsed log file of abnormal testing data')
+#     parser.add_argument('--log_file', default='Linux/linux_train', type=str, help='parsed log file')
+#     parser.add_argument('--log_normal', default='Linux/linux_test_normal', type=str, help='parsed log file of normal testing data')
+#     parser.add_argument('--log_abnormal', default='Linux/linux_abnormal', type=str, help='parsed log file of abnormal testing data')
     
     parser.add_argument('--window_size', default=10, type=int, help='lenght of training window')
 
